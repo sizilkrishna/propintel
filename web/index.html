@@ -1,0 +1,226 @@
+<!-- web/index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PropIntel | Lucknow Geospatial Intelligence</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    * { box-sizing: border-box; }
+    body, html { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #1e293b; }
+    #map { height: 100vh; width: 100vw; }
+    
+    .panel {
+      position: absolute; top: 20px; left: 20px; z-index: 1000;
+      background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(8px);
+      padding: 16px 20px; border-radius: 12px; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
+      width: 340px; border: 1px solid rgba(226, 232, 240, 0.8);
+    }
+    .panel h1 { margin: 0 0 4px 0; font-size: 18px; font-weight: 700; color: #0f172a; }
+    .panel p { margin: 0 0 12px 0; font-size: 12px; color: #64748b; }
+
+    .search-box {
+      width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1;
+      border-radius: 6px; font-size: 13px; margin-bottom: 12px; outline: none;
+    }
+    .search-box:focus { border-color: #2563eb; ring: 2px solid #93c5fd; }
+
+    .layer-toggle {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 8px; font-size: 13px; font-weight: 500;
+    }
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600;
+    }
+    .badge-rera { background: #fee2e2; color: #dc2626; }
+    .badge-bhu { background: #e0f2fe; color: #0284c7; }
+    .badge-intel { background: #fef3c7; color: #d97706; }
+    
+    .legend {
+      border-top: 1px solid #e2e8f0; padding-top: 10px; margin-top: 10px; font-size: 11px; color: #64748b;
+    }
+    .legend-item { display: flex; align-items: center; margin-bottom: 4px; }
+    .legend-color { width: 12px; height: 12px; border-radius: 3px; margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h1>PropIntel Lucknow</h1>
+    <p>RERA Developments & BhuNaksha Cadastral Platform</p>
+    
+    <input type="text" id="search" class="search-box" placeholder="Search project, builder, or village...">
+
+    <div class="layer-toggle">
+      <span><span class="badge badge-rera">●</span> UP-RERA Projects</span>
+      <input type="checkbox" id="toggle-projects" checked>
+    </div>
+    <div class="layer-toggle">
+      <span><span class="badge badge-bhu">■</span> BhuNaksha Parcels</span>
+      <input type="checkbox" id="toggle-parcels" checked>
+    </div>
+    <div class="layer-toggle">
+      <span><span class="badge badge-intel">▲</span> Market Intelligence</span>
+      <input type="checkbox" id="toggle-obs" checked>
+    </div>
+
+    <div class="legend">
+      <div class="legend-item"><div class="legend-color" style="background:#e11d48;"></div> Ongoing Development</div>
+      <div class="legend-item"><div class="legend-color" style="background:#059669;"></div> Completed / Ready</div>
+      <div class="legend-item"><div class="legend-color" style="background:#0284c7;"></div> Khasra Cadastral Boundary</div>
+      <div class="legend-item"><div class="legend-color" style="background:#d97706;"></div> Verified News / Registry Signal</div>
+    </div>
+  </div>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map', { zoomControl: false }).setView([26.83, 80.98], 12);
+    L.control.zoom({ position: 'topright' }).addTo(map);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap &copy; CARTO'
+    }).addTo(map);
+
+    let projectsLayer, parcelsLayer, obsLayer;
+    let allProjectsData = null;
+
+    // 1. Load BhuNaksha Cadastral Parcels
+    fetch('/api/parcels.geojson')
+      .then(res => res.json())
+      .then(data => {
+        parcelsLayer = L.geoJSON(data, {
+          style: {
+            color: "#0284c7",
+            weight: 2,
+            fillColor: "#38bdf8",
+            fillOpacity: 0.35
+          },
+          onEachFeature: function (f, layer) {
+            const p = f.properties;
+            layer.bindPopup(`
+              <div style="font-size:13px; line-height:1.5;">
+                <span class="badge badge-bhu">BhuNaksha Cadastral</span>
+                <h4 style="margin:4px 0; color:#0369a1;">Khasra #${p.khasra_no}</h4>
+                <b>Village / Tehsil:</b> ${p.village}, ${p.tehsil}<br/>
+                <b>Plot Area:</b> ${p.area_sqft ? p.area_sqft.toLocaleString() + ' sq ft' : 'N/A'}<br/>
+                <b>Circle Rate:</b> ₹${p.circle_rate_sqft}/sq ft<br/>
+                <hr style="border:0; border-top:1px solid #e2e8f0; margin:6px 0;"/>
+                <b>Valuation Estimate:</b> <span style="color:#059669; font-weight:700;">₹${p.indicative_valuation_inr ? p.indicative_valuation_inr.toLocaleString() : 'N/A'}</span>
+              </div>
+            `);
+          }
+        }).addTo(map);
+      });
+
+    // 2. Load UP-RERA Projects
+    fetch('/api/projects.geojson')
+      .then(res => res.json())
+      .then(data => {
+        allProjectsData = data;
+        renderProjects(data);
+      });
+
+    function renderProjects(data) {
+      if (projectsLayer) map.removeLayer(projectsLayer);
+
+      projectsLayer = L.geoJSON(data, {
+        pointToLayer: function (f, latlng) {
+          const isDone = f.properties.status === 'COMPLETED';
+          return L.circleMarker(latlng, {
+            radius: 8,
+            fillColor: isDone ? "#059669" : "#e11d48",
+            color: "#ffffff",
+            weight: 2,
+            opacity: 1,
+            fillOpacity: 0.95
+          });
+        },
+        onEachFeature: function (f, layer) {
+          const p = f.properties;
+          let priceRows = "";
+          p.prices.forEach(pr => {
+            priceRows += `<tr><td><b>${pr.unit_type}</b></td><td style="text-align:right;">₹${pr.price_sqft}/sq ft</td></tr>`;
+          });
+
+          layer.bindPopup(`
+            <div style="font-size:13px; line-height:1.4; min-width:220px;">
+              <span class="badge badge-rera">${p.status}</span>
+              <h3 style="margin:4px 0; color:#0f172a;">${p.project}</h3>
+              <b>Developer:</b> ${p.developer}<br/>
+              <b>Locality:</b> ${p.locality || 'Lucknow'}<br/>
+              <b>RERA Reg:</b> <code style="background:#f1f5f9; padding:1px 4px; border-radius:3px;">${p.rera_reg_no}</code><br/>
+              <table style="width:100%; margin-top:8px; border-collapse:collapse; font-size:12px;">${priceRows}</table>
+            </div>
+          `);
+        }
+      }).addTo(map);
+    }
+
+    // 3. Load News Observations & Evidence
+    fetch('/api/observations.geojson')
+      .then(res => res.json())
+      .then(data => {
+        obsLayer = L.geoJSON(data, {
+          pointToLayer: function (f, latlng) {
+            return L.circleMarker(latlng, {
+              radius: 6,
+              fillColor: "#d97706",
+              color: "#ffffff",
+              weight: 1.5,
+              opacity: 1,
+              fillOpacity: 0.9
+            });
+          },
+          onEachFeature: function (f, layer) {
+            const p = f.properties;
+            layer.bindPopup(`
+              <div style="font-size:12px; line-height:1.4; max-width:240px;">
+                <span class="badge badge-intel">Market Signal</span>
+                <h4 style="margin:4px 0; color:#b45309;">${p.locality}</h4>
+                <b>Rate:</b> ₹${p.price_sqft}/sq ft (${p.property_type})<br/>
+                <b>Source:</b> ${p.doc_title || 'News Registry'}<br/>
+                <blockquote style="margin:6px 0; padding-left:8px; border-left:3px solid #f59e0b; color:#475569; font-style:italic;">
+                  "${p.evidence_quote}"
+                </blockquote>
+                <small style="color:#94a3b8;">Observed: ${p.observed_on}</small>
+              </div>
+            `);
+          }
+        }).addTo(map);
+      });
+
+    // Layer Controls
+    document.getElementById('toggle-projects').addEventListener('change', e => {
+      e.target.checked ? map.addLayer(projectsLayer) : map.removeLayer(projectsLayer);
+    });
+    document.getElementById('toggle-parcels').addEventListener('change', e => {
+      e.target.checked ? map.addLayer(parcelsLayer) : map.removeLayer(parcelsLayer);
+    });
+    document.getElementById('toggle-obs').addEventListener('change', e => {
+      e.target.checked ? map.addLayer(obsLayer) : map.removeLayer(obsLayer);
+    });
+
+    // Search Box Filtering
+    document.getElementById('search').addEventListener('input', e => {
+      const q = e.target.value.toLowerCase().trim();
+      if (!allProjectsData) return;
+      if (!q) {
+        renderProjects(allProjectsData);
+        return;
+      }
+      const filtered = {
+        type: "FeatureCollection",
+        features: allProjectsData.features.filter(f => {
+          const p = f.properties;
+          return p.project.toLowerCase().includes(q) ||
+                 p.developer.toLowerCase().includes(q) ||
+                 (p.locality && p.locality.toLowerCase().includes(q));
+        })
+      };
+      renderProjects(filtered);
+    });
+  </script>
+</body>
+</html>
